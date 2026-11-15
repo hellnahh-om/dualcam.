@@ -1,0 +1,597 @@
+name: Build DualCam APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.2'
+
+      - name: Create project files
+        run: |
+          set -e
+          cat > settings.gradle.kts <<'DUALCAM_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "DualCam"
+          include(":app")
+          DUALCAM_EOF
+          cat > build.gradle.kts <<'DUALCAM_EOF'
+          plugins {
+              id("com.android.application") version "8.2.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+          }
+          DUALCAM_EOF
+          cat > gradle.properties <<'DUALCAM_EOF'
+          android.useAndroidX=true
+          kotlin.code.style=official
+          org.gradle.jvmargs=-Xmx2048m
+          DUALCAM_EOF
+          mkdir -p app
+          cat > app/build.gradle.kts <<'DUALCAM_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.dualcam"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.dualcam"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "0.1"
+              }
+
+              buildFeatures {
+                  viewBinding = true
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              lint {
+                  abortOnError = false
+              }
+          }
+
+          dependencies {
+              val cameraX = "1.3.1"
+              val media3 = "1.3.1"
+
+              implementation("androidx.core:core-ktx:1.12.0")
+              implementation("androidx.appcompat:appcompat:1.6.1")
+              implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+
+              implementation("androidx.camera:camera-core:$cameraX")
+              implementation("androidx.camera:camera-camera2:$cameraX")
+              implementation("androidx.camera:camera-lifecycle:$cameraX")
+              implementation("androidx.camera:camera-video:$cameraX")
+              implementation("androidx.camera:camera-view:$cameraX")
+
+              implementation("androidx.media3:media3-common:$media3")
+              implementation("androidx.media3:media3-transformer:$media3")
+              implementation("androidx.media3:media3-effect:$media3")
+          }
+          DUALCAM_EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'DUALCAM_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-feature android:name="android.hardware.camera.any" />
+
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission
+                  android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+                  android:maxSdkVersion="28" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:theme="@style/Theme.DualCam">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="landscape"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+
+          </manifest>
+          DUALCAM_EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'DUALCAM_EOF'
+          <resources>
+              <string name="app_name">DualCam</string>
+              <string name="record">REC</string>
+              <string name="stop">STOP</string>
+              <string name="hint">Drag the box to frame the vertical (9:16) version</string>
+          </resources>
+          DUALCAM_EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'DUALCAM_EOF'
+          <resources>
+              <style name="Theme.DualCam" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:windowBackground">@android:color/black</item>
+                  <item name="android:statusBarColor">@android:color/black</item>
+                  <item name="android:navigationBarColor">@android:color/black</item>
+              </style>
+          </resources>
+          DUALCAM_EOF
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_main.xml <<'DUALCAM_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <androidx.constraintlayout.widget.ConstraintLayout
+              xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@android:color/black">
+
+              <androidx.camera.view.PreviewView
+                  android:id="@+id/previewView"
+                  android:layout_width="0dp"
+                  android:layout_height="0dp"
+                  app:implementationMode="compatible"
+                  app:scaleType="fitCenter"
+                  app:layout_constraintDimensionRatio="16:9"
+                  app:layout_constraintTop_toTopOf="parent"
+                  app:layout_constraintBottom_toBottomOf="parent"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent" />
+
+              <com.dualcam.CropOverlayView
+                  android:id="@+id/cropOverlay"
+                  android:layout_width="0dp"
+                  android:layout_height="0dp"
+                  app:layout_constraintDimensionRatio="16:9"
+                  app:layout_constraintTop_toTopOf="parent"
+                  app:layout_constraintBottom_toBottomOf="parent"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent" />
+
+              <TextView
+                  android:id="@+id/statusText"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_margin="12dp"
+                  android:background="#99000000"
+                  android:padding="6dp"
+                  android:text="@string/hint"
+                  android:textColor="@android:color/white"
+                  android:textSize="13sp"
+                  app:layout_constraintStart_toStartOf="parent"
+                  app:layout_constraintTop_toTopOf="parent" />
+
+              <Button
+                  android:id="@+id/recordButton"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginEnd="20dp"
+                  android:backgroundTint="#E53935"
+                  android:text="@string/record"
+                  android:textColor="@android:color/white"
+                  app:layout_constraintBottom_toBottomOf="parent"
+                  app:layout_constraintEnd_toEndOf="parent"
+                  app:layout_constraintTop_toTopOf="parent" />
+
+          </androidx.constraintlayout.widget.ConstraintLayout>
+          DUALCAM_EOF
+          mkdir -p app/src/main/java/com/dualcam
+          cat > app/src/main/java/com/dualcam/MainActivity.kt <<'DUALCAM_EOF'
+          package com.dualcam
+
+          import android.Manifest
+          import android.content.ContentValues
+          import android.content.pm.PackageManager
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.MediaStore
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.camera.core.AspectRatio
+          import androidx.camera.core.CameraSelector
+          import androidx.camera.core.Preview
+          import androidx.camera.lifecycle.ProcessCameraProvider
+          import androidx.camera.video.FallbackStrategy
+          import androidx.camera.video.MediaStoreOutputOptions
+          import androidx.camera.video.Quality
+          import androidx.camera.video.QualitySelector
+          import androidx.camera.video.Recorder
+          import androidx.camera.video.Recording
+          import androidx.camera.video.VideoCapture
+          import androidx.camera.video.VideoRecordEvent
+          import androidx.core.content.ContextCompat
+          import com.dualcam.databinding.ActivityMainBinding
+          import java.text.SimpleDateFormat
+          import java.util.Locale
+
+          /**
+           * Records one landscape video (up to 4K) and, when you stop, also exports a 9:16
+           * vertical version cropped at the position you chose on the overlay.
+           */
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var binding: ActivityMainBinding
+              private var videoCapture: VideoCapture<Recorder>? = null
+              private var recording: Recording? = null
+              private var cropCenterAtStop = 0.5f
+
+              private val permissionLauncher = registerForActivityResult(
+                  ActivityResultContracts.RequestMultiplePermissions()
+              ) { results ->
+                  if (results[Manifest.permission.CAMERA] == true) {
+                      startCamera()
+                  } else {
+                      Toast.makeText(this, "Camera permission is required", Toast.LENGTH_LONG).show()
+                      finish()
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  binding = ActivityMainBinding.inflate(layoutInflater)
+                  setContentView(binding.root)
+
+                  binding.recordButton.setOnClickListener { toggleRecording() }
+
+                  val needed = mutableListOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+                  if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+                      needed += Manifest.permission.WRITE_EXTERNAL_STORAGE
+                  }
+                  val missing = needed.filter {
+                      ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+                  }
+                  if (missing.isEmpty()) startCamera() else permissionLauncher.launch(missing.toTypedArray())
+              }
+
+              private fun startCamera() {
+                  val providerFuture = ProcessCameraProvider.getInstance(this)
+                  providerFuture.addListener({
+                      val provider = providerFuture.get()
+
+                      val preview = Preview.Builder()
+                          .setTargetAspectRatio(AspectRatio.RATIO_16_9)
+                          .build()
+                          .also { it.setSurfaceProvider(binding.previewView.surfaceProvider) }
+
+                      // Highest quality available, falling back gracefully (4K -> 1080p -> 720p)
+                      val recorder = Recorder.Builder()
+                          .setQualitySelector(
+                              QualitySelector.fromOrderedList(
+                                  listOf(Quality.UHD, Quality.FHD, Quality.HD),
+                                  FallbackStrategy.lowerQualityOrHigherThan(Quality.HD)
+                              )
+                          )
+                          .build()
+                      val capture = VideoCapture.withOutput(recorder)
+                      videoCapture = capture
+
+                      try {
+                          provider.unbindAll()
+                          provider.bindToLifecycle(
+                              this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture
+                          )
+                      } catch (e: Exception) {
+                          Toast.makeText(this, "Camera failed to start: ${e.message}", Toast.LENGTH_LONG).show()
+                      }
+                  }, ContextCompat.getMainExecutor(this))
+              }
+
+              private fun toggleRecording() {
+                  val active = recording
+                  if (active != null) {
+                      // Remember where the vertical box was when the user stopped
+                      cropCenterAtStop = binding.cropOverlay.centerFraction
+                      active.stop()
+                      recording = null
+                      return
+                  }
+
+                  val capture = videoCapture ?: return
+                  val baseName = "DualCam_" +
+                      SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+
+                  val values = ContentValues().apply {
+                      put(MediaStore.MediaColumns.DISPLAY_NAME, "${baseName}_landscape")
+                      put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                      if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                          put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/DualCam")
+                      }
+                  }
+                  val output = MediaStoreOutputOptions.Builder(
+                      contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                  ).setContentValues(values).build()
+
+                  var pending = capture.output.prepareRecording(this, output)
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                      == PackageManager.PERMISSION_GRANTED
+                  ) {
+                      pending = pending.withAudioEnabled()
+                  }
+
+                  recording = pending.start(ContextCompat.getMainExecutor(this)) { event ->
+                      when (event) {
+                          is VideoRecordEvent.Start -> {
+                              binding.recordButton.setText(R.string.stop)
+                              binding.statusText.text = "Recording..."
+                          }
+                          is VideoRecordEvent.Finalize -> {
+                              binding.recordButton.setText(R.string.record)
+                              if (event.hasError()) {
+                                  binding.statusText.text = "Recording error (${event.error})"
+                              } else {
+                                  binding.statusText.text = "Saved landscape. Making vertical..."
+                                  VerticalExporter.export(
+                                      this, event.outputResults.outputUri, cropCenterAtStop, baseName
+                                  ) { ok, message ->
+                                      binding.statusText.text = if (ok) {
+                                          "Done: landscape + vertical saved in Movies/DualCam"
+                                      } else message
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          DUALCAM_EOF
+          mkdir -p app/src/main/java/com/dualcam
+          cat > app/src/main/java/com/dualcam/CropOverlayView.kt <<'DUALCAM_EOF'
+          package com.dualcam
+
+          import android.content.Context
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.Paint
+          import android.graphics.RectF
+          import android.util.AttributeSet
+          import android.view.MotionEvent
+          import android.view.View
+
+          /**
+           * Draws a draggable 9:16 box over the landscape preview.
+           * The area outside the box is dimmed; the box shows what the vertical video will contain.
+           */
+          class CropOverlayView @JvmOverloads constructor(
+              context: Context,
+              attrs: AttributeSet? = null
+          ) : View(context, attrs) {
+
+              /** Horizontal center of the crop box as a fraction of the view width (0..1). */
+              var centerFraction: Float = 0.5f
+                  private set
+
+              private val dimPaint = Paint().apply { color = Color.argb(140, 0, 0, 0) }
+              private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  color = Color.WHITE
+                  style = Paint.Style.STROKE
+                  strokeWidth = 4f
+              }
+              private val box = RectF()
+
+              private fun boxWidth(): Float = height * 9f / 16f
+
+              private fun clampedCenter(rawCenterPx: Float): Float {
+                  val half = boxWidth() / 2f
+                  return rawCenterPx.coerceIn(half, (width - half).coerceAtLeast(half))
+              }
+
+              override fun onDraw(canvas: Canvas) {
+                  super.onDraw(canvas)
+                  if (width == 0 || height == 0) return
+
+                  val centerPx = clampedCenter(centerFraction * width)
+                  val half = boxWidth() / 2f
+                  box.set(centerPx - half, 0f, centerPx + half, height.toFloat())
+
+                  // Dim everything outside the vertical crop
+                  canvas.drawRect(0f, 0f, box.left, height.toFloat(), dimPaint)
+                  canvas.drawRect(box.right, 0f, width.toFloat(), height.toFloat(), dimPaint)
+                  canvas.drawRect(box, borderPaint)
+              }
+
+              override fun onTouchEvent(event: MotionEvent): Boolean {
+                  when (event.actionMasked) {
+                      MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                          val centerPx = clampedCenter(event.x)
+                          centerFraction = centerPx / width
+                          invalidate()
+                          return true
+                      }
+                  }
+                  return super.onTouchEvent(event)
+              }
+          }
+          DUALCAM_EOF
+          mkdir -p app/src/main/java/com/dualcam
+          cat > app/src/main/java/com/dualcam/VerticalExporter.kt <<'DUALCAM_EOF'
+          package com.dualcam
+
+          import android.content.ContentValues
+          import android.content.Context
+          import android.media.MediaMetadataRetriever
+          import android.net.Uri
+          import android.os.Build
+          import android.provider.MediaStore
+          import androidx.annotation.OptIn
+          import androidx.media3.common.Effect
+          import androidx.media3.common.MediaItem
+          import androidx.media3.common.MimeTypes
+          import androidx.media3.common.util.UnstableApi
+          import androidx.media3.effect.Crop
+          import androidx.media3.effect.Presentation
+          import androidx.media3.transformer.Composition
+          import androidx.media3.transformer.EditedMediaItem
+          import androidx.media3.transformer.Effects
+          import androidx.media3.transformer.ExportException
+          import androidx.media3.transformer.ExportResult
+          import androidx.media3.transformer.Transformer
+          import java.io.File
+
+          /**
+           * Takes the finished landscape recording and produces a 1080x1920 vertical version
+           * by cropping a 9:16 window at the position chosen on the overlay.
+           */
+          @OptIn(UnstableApi::class)
+          object VerticalExporter {
+
+              fun export(
+                  context: Context,
+                  landscapeUri: Uri,
+                  centerFraction: Float,
+                  baseName: String,
+                  onDone: (Boolean, String) -> Unit
+              ) {
+                  // Work out the upright (rotation-corrected) source size
+                  val retriever = MediaMetadataRetriever()
+                  var w = 0
+                  var h = 0
+                  try {
+                      retriever.setDataSource(context, landscapeUri)
+                      w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)!!.toInt()
+                      h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)!!.toInt()
+                      val rotation = retriever
+                          .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toInt() ?: 0
+                      if (rotation == 90 || rotation == 270) {
+                          val t = w; w = h; h = t
+                      }
+                  } catch (e: Exception) {
+                      onDone(false, "Could not read recording: ${e.message}")
+                      return
+                  } finally {
+                      retriever.release()
+                  }
+
+                  // Crop window as a fraction of the full width, in normalized device coords (-1..1)
+                  val halfWidthNdc = ((h * 9f / 16f) / w).coerceAtMost(1f)
+                  val centerNdc = (centerFraction * 2f - 1f)
+                      .coerceIn(-1f + halfWidthNdc, 1f - halfWidthNdc)
+                  val left = centerNdc - halfWidthNdc
+                  val right = centerNdc + halfWidthNdc
+
+                  val effects = Effects(
+                      /* audioProcessors = */ emptyList(),
+                      /* videoEffects = */ listOf<Effect>(
+                          Crop(left, right, -1f, 1f),
+                          Presentation.createForWidthAndHeight(
+                              1080, 1920, Presentation.LAYOUT_SCALE_TO_FIT
+                          )
+                      )
+                  )
+
+                  val edited = EditedMediaItem.Builder(MediaItem.fromUri(landscapeUri))
+                      .setEffects(effects)
+                      .build()
+
+                  val tmp = File(context.cacheDir, "${baseName}_vertical.mp4")
+
+                  val transformer = Transformer.Builder(context)
+                      .setVideoMimeType(MimeTypes.VIDEO_H264)
+                      .addListener(object : Transformer.Listener {
+                          override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                              val ok = saveToGallery(context, tmp, "${baseName}_vertical")
+                              tmp.delete()
+                              onDone(ok, if (ok) "Saved vertical version" else "Could not save vertical file")
+                          }
+
+                          override fun onError(
+                              composition: Composition,
+                              exportResult: ExportResult,
+                              exportException: ExportException
+                          ) {
+                              tmp.delete()
+                              onDone(false, "Vertical export failed: ${exportException.message}")
+                          }
+                      })
+                      .build()
+
+                  transformer.start(edited, tmp.absolutePath)
+              }
+
+              private fun saveToGallery(context: Context, file: File, displayName: String): Boolean {
+                  val values = ContentValues().apply {
+                      put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                      put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                      if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                          put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/DualCam")
+                      }
+                  }
+                  val resolver = context.contentResolver
+                  val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return false
+                  return try {
+                      resolver.openOutputStream(uri)?.use { out ->
+                          file.inputStream().use { it.copyTo(out) }
+                      }
+                      true
+                  } catch (e: Exception) {
+                      resolver.delete(uri, null, null)
+                      false
+                  }
+              }
+          }
+          DUALCAM_EOF
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Keep APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualCam-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish APK as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" app/build/outputs/apk/debug/app-debug.apk \
+            --title "DualCam build ${{ github.run_number }}" \
+            --notes "Debug APK. Download app-debug.apk below and install it on your phone."
